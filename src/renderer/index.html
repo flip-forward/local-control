@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'" />
+  <title>flip forward</title>
+  <link rel="stylesheet" href="assets/tokens.css" />
+  <style>
+    @font-face {
+      font-family: 'Barlow';
+      font-weight: 300;
+      src: url('assets/fonts/barlow-latin-300-normal.woff2') format('woff2');
+    }
+    @font-face {
+      font-family: 'Barlow';
+      font-weight: 400;
+      src: url('assets/fonts/barlow-latin-400-normal.woff2') format('woff2');
+    }
+    @font-face {
+      font-family: 'Barlow';
+      font-weight: 500;
+      src: url('assets/fonts/barlow-latin-500-normal.woff2') format('woff2');
+    }
+    @font-face {
+      font-family: 'Barlow';
+      font-weight: 600;
+      src: url('assets/fonts/barlow-latin-600-normal.woff2') format('woff2');
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Barlow', Arial, Helvetica, sans-serif;
+      font-weight: 400;
+      font-size: 1rem;
+      background: var(--flip-gray-900);
+      color: var(--flip-foreground);
+      height: 100vh;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      overflow: hidden;
+    }
+
+    /* ── Header ── */
+    header {
+      background: var(--flip-gray-800);
+      border-bottom: 2px solid var(--flip-accent);
+      padding: 0 2rem 0 5.5rem;
+      height: 60px;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      -webkit-app-region: drag;
+    }
+    header img {
+      height: 1.5rem;
+      filter: brightness(0) invert(1);
+      opacity: 0.9;
+      -webkit-app-region: no-drag;
+    }
+    header span { -webkit-app-region: no-drag; }
+
+    /* ── Footer ── */
+    footer {
+      background: var(--flip-gray-800);
+      border-top: 1px solid var(--flip-gray-600);
+      padding: 0 2rem;
+      height: 36px;
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+    }
+    footer a {
+      font-size: 0.75rem;
+      color: var(--flip-muted);
+      text-decoration: none;
+      cursor: pointer;
+    }
+    footer a:hover { color: var(--flip-accent); }
+    #status {
+      font-size: 0.8rem;
+      color: var(--flip-muted);
+      margin-left: auto;
+    }
+
+    /* ── Layout ── */
+    main {
+      display: grid;
+      grid-template-columns: 220px 1fr;
+      overflow: hidden;
+    }
+
+    /* ── Display list ── */
+    #display-list {
+      background: var(--flip-gray-800);
+      border-right: 1px solid var(--flip-gray-600);
+      overflow-y: auto;
+      padding: 1rem 0.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    #display-list h2 {
+      font-size: 0.7rem;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--flip-muted);
+      padding: 0.25rem 0.75rem 0.75rem;
+    }
+    .display-item {
+      padding: 0.6rem 0.75rem;
+      cursor: pointer;
+      color: var(--flip-foreground);
+    }
+    .display-item:hover { background: var(--flip-gray-700); }
+    .display-item.selected {
+      background: var(--flip-gray-700);
+      border-left: 2px solid var(--flip-accent);
+      padding-left: calc(0.75rem - 2px);
+    }
+    .display-item .display-name { font-size: 0.875rem; font-weight: 500; }
+    .display-item .display-host { font-size: 0.75rem; color: var(--flip-muted); margin-top: 2px; }
+    #empty-state { padding: 1rem 0.75rem; color: var(--flip-muted); font-size: 0.875rem; }
+
+    /* ── Control panel ── */
+    #control-panel {
+      overflow-y: auto;
+      padding: 2rem;
+      display: flex;
+      flex-direction: column;
+      gap: 2rem;
+    }
+    #no-selection { margin: auto; color: var(--flip-muted); font-size: 0.875rem; }
+    #display-controls { display: flex; flex-direction: column; gap: 2rem; }
+
+    .section-title {
+      font-size: 0.7rem;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--flip-muted);
+      margin-bottom: 0.75rem;
+    }
+
+    /* ── Inputs & selects ── */
+    input[type="text"],
+    input[type="number"],
+    input[type="password"],
+    select {
+      background: transparent;
+      border: 1px solid var(--flip-gray-500);
+      color: var(--flip-foreground);
+      font-family: inherit;
+      font-size: 0.875rem;
+      padding: 0.5rem 0.625rem;
+    }
+    input:focus, select:focus { outline: none; border-color: var(--flip-gray-200); }
+    input::placeholder { color: var(--flip-muted); }
+    select { cursor: pointer; }
+    select option { background: var(--flip-gray-800); }
+
+    /* ── Buttons ── */
+    .btn {
+      background: var(--flip-foreground);
+      color: var(--flip-gray-900);
+      border: none;
+      padding: 0.5rem 1rem;
+      font-family: inherit;
+      font-size: 0.875rem;
+      font-weight: 500;
+      cursor: pointer;
+    }
+    .btn:hover { opacity: 0.85; }
+    .btn:disabled { opacity: 0.3; cursor: not-allowed; }
+    .btn-ghost {
+      background: transparent;
+      border: 1px solid var(--flip-gray-500);
+      color: var(--flip-muted);
+      padding: 0.5rem 1rem;
+      font-family: inherit;
+      font-size: 0.875rem;
+      cursor: pointer;
+    }
+    .btn-ghost:hover { border-color: var(--flip-gray-200); color: var(--flip-foreground); }
+
+    /* ── Send row ── */
+    #send-row { display: flex; gap: 0.625rem; align-items: center; flex-wrap: wrap; }
+    #text-input { flex: 1; max-width: 400px; font-size: 1rem; font-weight: 300; letter-spacing: 0.08em; padding: 0.5rem 0.75rem; }
+    #interval-input { width: 90px; }
+    .speed-label { font-size: 0.875rem; color: var(--flip-muted); white-space: nowrap; }
+    #speed-select { padding: 0.5rem 0.5rem; }
+    .input-hint { font-size: 0.75rem; color: var(--flip-muted); margin-top: 0.5rem; }
+    .input-hint code { font-family: monospace; color: var(--flip-gray-100); }
+
+    /* ── Module selector ── */
+    .module-row {
+      display: flex;
+      align-items: center;
+      gap: 0.625rem;
+      margin-bottom: 1rem;
+    }
+    .module-row label { font-size: 0.875rem; color: var(--flip-muted); }
+
+    /* ── Action cards ── */
+    .action-cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 1px;
+      background: var(--flip-gray-600);
+      border: 1px solid var(--flip-gray-600);
+    }
+    .card {
+      background: var(--flip-gray-800);
+      padding: 1.25rem;
+    }
+    .card h4 {
+      font-size: 0.7rem;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--flip-muted);
+      margin-bottom: 1rem;
+    }
+
+    /* ── Alphabet grid ── */
+    .alpha-grid { display: flex; flex-wrap: wrap; gap: 4px; }
+    .alpha-btn {
+      width: 30px;
+      height: 30px;
+      background: var(--flip-gray-700);
+      border: 1px solid var(--flip-gray-500);
+      color: var(--flip-foreground);
+      font-family: monospace;
+      font-size: 0.8rem;
+      font-weight: 500;
+      cursor: pointer;
+    }
+    .alpha-btn:hover { background: var(--flip-gray-600); border-color: var(--flip-gray-300); }
+    .alpha-btn:active { background: var(--flip-gray-500); }
+
+    /* ── Feedback ── */
+    .feedback { font-size: 0.8rem; color: var(--flip-muted); min-height: 1rem; margin-top: 0.75rem; }
+    .feedback.error { color: var(--flip-danger); }
+    .feedback.ok { color: var(--flip-accent); }
+
+    /* ── Smart homing confirmation ── */
+    #homing-confirmation {
+      display: none;
+      flex-direction: column;
+      gap: 1.25rem;
+    }
+    #homing-confirm-title { font-size: 1rem; font-weight: 500; }
+    #homing-confirm-step { font-size: 0.875rem; color: var(--flip-muted); }
+    #homing-confirm-instruction { font-size: 0.875rem; color: var(--flip-muted); }
+    #homing-confirm-grid { gap: 6px; }
+    #homing-confirm-grid .alpha-btn { width: 38px; height: 38px; font-size: 0.9rem; }
+
+    /* ── Firmware card ── */
+    #firmware-card { grid-column: 1 / -1; }
+
+    #firmware-dropzone {
+      border: 1px dashed var(--flip-gray-500);
+      padding: 1.25rem;
+      text-align: center;
+      color: var(--flip-muted);
+      font-size: 0.875rem;
+      cursor: pointer;
+      transition: border-color 0.1s, color 0.1s;
+      margin-bottom: 0.875rem;
+    }
+    #firmware-dropzone:hover,
+    #firmware-dropzone.drag-over { border-color: var(--flip-gray-200); color: var(--flip-foreground); }
+
+    #firmware-file-info {
+      display: none;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.875rem;
+      font-size: 0.875rem;
+      color: var(--flip-accent);
+    }
+    #firmware-file-info button {
+      background: none;
+      border: none;
+      color: var(--flip-muted);
+      cursor: pointer;
+      font-size: 1rem;
+      padding: 0 4px;
+    }
+    #firmware-file-info button:hover { color: var(--flip-foreground); }
+
+    .firmware-fields { display: flex; gap: 0.75rem; margin-bottom: 0.875rem; }
+    .firmware-field { display: flex; flex-direction: column; gap: 0.25rem; flex: 1; }
+    .firmware-field label { font-size: 0.75rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.08em; color: var(--flip-muted); }
+    .firmware-field input { width: 100%; }
+
+    #firmware-progress { display: none; flex-direction: column; gap: 0.75rem; }
+    #firmware-progress-label { font-size: 0.875rem; color: var(--flip-muted); }
+    .firmware-module-grid { display: flex; flex-wrap: wrap; gap: 4px; }
+    .firmware-module-item {
+      width: 32px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.7rem;
+      font-weight: 500;
+      background: var(--flip-gray-700);
+      border: 1px solid var(--flip-gray-500);
+      color: var(--flip-muted);
+    }
+    .firmware-module-item.ok    { border-color: var(--flip-accent); color: var(--flip-accent); }
+    .firmware-module-item.error { border-color: var(--flip-danger); color: var(--flip-danger); }
+  </style>
+</head>
+<body>
+  <header>
+    <img src="assets/logo.png" alt="flip forward" />
+    <span id="status">Scanning…</span>
+  </header>
+
+  <main>
+    <aside id="display-list">
+      <h2>Displays</h2>
+      <div id="empty-state">No displays found</div>
+    </aside>
+
+    <section id="control-panel">
+      <p id="no-selection">Select a display to control it</p>
+
+      <div id="display-controls" style="display:none">
+
+        <!-- Top row: send + speed -->
+        <div>
+          <div id="send-row">
+            <input id="text-input" type="text" maxlength="64" placeholder="HELLO" autocomplete="off" />
+            <button class="btn" id="send-btn">Send</button>
+            <input id="interval-input" type="number" min="1" placeholder="interval s" />
+            <span class="speed-label">Speed</span>
+            <select id="speed-select">
+              <option value="">—</option>
+              <option value="5">5</option>
+              <option value="10">10</option>
+              <option value="15">15</option>
+              <option value="20">20</option>
+              <option value="30">30</option>
+              <option value="60">60</option>
+            </select>
+          </div>
+          <p class="input-hint"><code>%S</code> seconds &nbsp; <code>%m</code> minutes &nbsp; <code>%H</code> hours</p>
+          <div class="feedback" id="send-feedback"></div>
+        </div>
+
+        <!-- Module commands -->
+        <div>
+          <p class="section-title">Module commands</p>
+          <div class="module-row">
+            <label for="module-select">Module</label>
+            <select id="module-select"></select>
+          </div>
+
+          <div class="action-cards">
+
+            <!-- Actions -->
+            <div class="card">
+              <h4>Actions</h4>
+              <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                <button class="btn-ghost" id="reboot-btn">Reboot</button>
+                <button class="btn-ghost" id="blink-btn">Blink</button>
+              </div>
+              <div class="feedback" id="actions-feedback"></div>
+            </div>
+
+            <!-- Display character -->
+            <div class="card">
+              <h4>Display Character</h4>
+              <div class="alpha-grid" id="displaychar-grid"></div>
+              <div class="feedback" id="displaychar-feedback"></div>
+            </div>
+
+            <!-- Smart homing -->
+            <div class="card" id="homing-card">
+              <h4>Smart Homing</h4>
+              <button class="btn" id="start-homing-btn">Start Homing</button>
+              <div class="feedback" id="homing-feedback"></div>
+            </div>
+
+            <!-- Upload firmware -->
+            <div class="card" id="firmware-card">
+              <h4>Upload Firmware</h4>
+
+              <div id="firmware-form">
+                <div id="firmware-dropzone">Drop firmware.bin here or click to browse</div>
+                <div id="firmware-file-info">
+                  <span id="firmware-file-name"></span>
+                  <button id="firmware-clear-btn" title="Clear">×</button>
+                </div>
+                <div class="firmware-fields">
+                  <div class="firmware-field">
+                    <label for="firmware-ssid">WiFi SSID</label>
+                    <input type="text" id="firmware-ssid" placeholder="Network name" autocomplete="off" />
+                  </div>
+                  <div class="firmware-field">
+                    <label for="firmware-password">Password</label>
+                    <input type="password" id="firmware-password" placeholder="••••••••" />
+                  </div>
+                </div>
+                <button class="btn" id="firmware-update-btn" disabled>Update Firmware</button>
+              </div>
+
+              <div id="firmware-progress">
+                <p id="firmware-progress-label"></p>
+                <div class="firmware-module-grid" id="firmware-module-grid"></div>
+                <button class="btn-ghost" id="firmware-cancel-btn" style="margin-top:0.5rem">Cancel</button>
+              </div>
+
+              <div class="feedback" id="firmware-feedback"></div>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- Smart homing confirmation (full-width takeover) -->
+        <div id="homing-confirmation">
+          <div style="display:flex; align-items:baseline; gap:1rem;">
+            <span id="homing-confirm-title">Smart Homing</span>
+            <span id="homing-confirm-step"></span>
+          </div>
+          <p id="homing-confirm-instruction">Select the character currently shown on the display.</p>
+          <div class="alpha-grid" id="homing-confirm-grid"></div>
+          <div style="display:flex; align-items:center; gap:1rem;">
+            <div class="feedback" id="homing-confirm-feedback"></div>
+            <button class="btn-ghost" id="cancel-homing-btn" style="margin-left:auto">Cancel</button>
+          </div>
+        </div>
+
+      </div>
+    </section>
+  </main>
+  <footer>
+    <a id="footer-link">www.flipforward.de</a>
+  </footer>
+  <script src="renderer.js"></script>
+</body>
+</html>

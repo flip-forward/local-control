@@ -1,0 +1,25 @@
+:root {
+  /* Background */
+  --flip-gray-900: #0a0a0a;
+  --flip-gray-800: #141414;
+  --flip-gray-700: #1f1f1f;
+  --flip-gray-600: #2a2a2a;
+  --flip-gray-500: #3a3a3a;
+  --flip-gray-400: #525252;
+  --flip-gray-300: #6b6b6b;
+  --flip-gray-200: #878787;
+  --flip-gray-100: #a3a3a3;
+  --flip-gray-50:  #c4c4c4;
+
+  /* Text */
+  --flip-foreground: #e5e5e5;
+  --flip-muted: #878787;
+
+  /* Accent */
+  --flip-accent: #4a9eff;
+  --flip-accent-muted: #2563eb;
+
+  /* Semantic */
+  --flip-danger: #dc2626;
+  --flip-warning: #ea580c;
+}
