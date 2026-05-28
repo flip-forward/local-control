@@ -12,10 +12,15 @@ contextBridge.exposeInMainWorld('splitflap', {
   stopFirmwareServer: () => ipcRenderer.invoke('firmware:stop'),
   sendFirmwareUpdate: (id, modules, ip, port, ssid, password) =>
     ipcRenderer.invoke('firmware:update', { id, modules, ip, port, ssid, password }),
+  sendFirmwareUpdateFromUrl: (id, modules, url, ssid, password) =>
+    ipcRenderer.invoke('firmware:update-url', { id, modules, url, ssid, password }),
 
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
+  addManualDisplay: (display) => ipcRenderer.invoke('display:add-manual', display),
+  removeManualDisplay: (id) => ipcRenderer.invoke('display:remove-manual', id),
 
   onDisplayFound:  (cb) => ipcRenderer.on('display:found',  (_e, d)    => cb(d)),
   onDisplayLost:   (cb) => ipcRenderer.on('display:lost',   (_e, id)   => cb(id)),
-  onFirmwareAck:   (cb) => ipcRenderer.on('firmware:ack',   (_e, data) => cb(data)),
+  onFirmwareRequested: (cb) => ipcRenderer.on('firmware:requested', (_e, data) => cb(data)),
+  onFirmwareAck:       (cb) => ipcRenderer.on('firmware:ack',       (_e, data) => cb(data)),
 });

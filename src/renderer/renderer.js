@@ -63,6 +63,79 @@ buildAlphaGrid(homingConfirmGrid, onHomingChar);
 
 // ── Display list ─────────────────────────────────────────────
 
+// ── Manual displays ───────────────────────────────────────────
+
+const MANUAL_KEY = 'manual-displays';
+
+function loadManualDisplays() {
+  try { return JSON.parse(localStorage.getItem(MANUAL_KEY) ?? '[]'); } catch { return []; }
+}
+
+function saveManualDisplays() {
+  const manual = Array.from(displays.values()).filter((d) => d.manual);
+  localStorage.setItem(MANUAL_KEY, JSON.stringify(manual));
+}
+
+function makeManualDisplay(ip, name) {
+  return {
+    id: `manual@${ip}`,
+    name: name || ip,
+    host: ip,
+    port: 80,
+    addresses: [ip],
+    manual: true,
+  };
+}
+
+// Restore persisted manual displays
+for (const display of loadManualDisplays()) {
+  displays.set(display.id, display);
+  window.splitflap.addManualDisplay(display);
+}
+
+const addToggleBtn  = document.getElementById('add-display-toggle');
+const addForm       = document.getElementById('add-display-form');
+const manualNameEl  = document.getElementById('manual-name');
+const manualIpEl    = document.getElementById('manual-ip');
+const manualAddBtn  = document.getElementById('manual-add-btn');
+
+addToggleBtn.addEventListener('click', () => {
+  const open = addForm.style.display === 'flex';
+  addForm.style.display = open ? 'none' : 'flex';
+  if (!open) manualIpEl.focus();
+});
+
+manualAddBtn.addEventListener('click', addManualDisplay);
+manualIpEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') addManualDisplay(); });
+
+function addManualDisplay() {
+  const ip = manualIpEl.value.trim();
+  if (!ip) return;
+  const display = makeManualDisplay(ip, manualNameEl.value.trim());
+  displays.set(display.id, display);
+  window.splitflap.addManualDisplay(display);
+  saveManualDisplays();
+  manualNameEl.value = '';
+  manualIpEl.value = '';
+  addForm.style.display = 'none';
+  renderList();
+}
+
+function removeManualDisplay(id) {
+  displays.delete(id);
+  window.splitflap.removeManualDisplay(id);
+  saveManualDisplays();
+  if (selectedId === id) {
+    selectedId = null;
+    controlsEl.style.display = 'none';
+    noSelectionEl.style.display = '';
+    resetHoming();
+  }
+  renderList();
+}
+
+// ── Display list ─────────────────────────────────────────────
+
 function renderList() {
   document.querySelectorAll('.display-item').forEach((el) => el.remove());
 
@@ -75,8 +148,15 @@ function renderList() {
       el.className = 'display-item' + (display.id === selectedId ? ' selected' : '');
       el.dataset.id = display.id;
       el.innerHTML = `<div class="display-name">${display.name}</div>
-                      <div class="display-host">${display.host}:${display.port}</div>`;
+                      <div class="display-host">${display.host}:${display.port}</div>
+                      ${display.manual ? '<button class="remove-btn" title="Remove">×</button>' : ''}`;
       el.addEventListener('click', () => selectDisplay(display.id));
+      if (display.manual) {
+        el.querySelector('.remove-btn').addEventListener('click', (e) => {
+          e.stopPropagation();
+          removeManualDisplay(display.id);
+        });
+      }
       listEl.appendChild(el);
     }
   }
@@ -87,6 +167,7 @@ function renderList() {
 }
 
 function selectDisplay(id) {
+  saveFirmwareState(selectedId);
   selectedId = id;
   renderList();
   noSelectionEl.style.display = 'none';
@@ -94,6 +175,7 @@ function selectDisplay(id) {
   clearFeedback();
   resetHoming();
   updateHomingCardState();
+  restoreFirmwareState(id);
   speedSelect.value = '20';
   window.splitflap.sendCommand(id, '@', 'MAXSPEED', '20');
   textInput.focus();
@@ -247,6 +329,36 @@ speedSelect.addEventListener('change', async () => {
 
 let firmwareFilePath = null;
 let firmwarePendingAcks = new Set();
+let updatingDisplayId = null;
+const firmwareStateByDisplay = new Map();
+
+function saveFirmwareState(id) {
+  if (!id) return;
+  firmwareStateByDisplay.set(id, {
+    pendingAcks: new Set(firmwarePendingAcks),
+    gridHTML: firmwareModuleGrid.innerHTML,
+    labelText: firmwareProgressLabel.textContent,
+    showingProgress: firmwareProgress.style.display !== 'none',
+  });
+}
+
+function restoreFirmwareState(id) {
+  const state = firmwareStateByDisplay.get(id);
+  if (state) {
+    firmwarePendingAcks = new Set(state.pendingAcks);
+    firmwareModuleGrid.innerHTML = state.gridHTML;
+    firmwareProgressLabel.textContent = state.labelText;
+    firmwareForm.style.display = state.showingProgress ? 'none' : '';
+    firmwareProgress.style.display = state.showingProgress ? 'flex' : 'none';
+  } else {
+    firmwarePendingAcks = new Set();
+    firmwareModuleGrid.innerHTML = '';
+    firmwareProgressLabel.textContent = '';
+    firmwareForm.style.display = '';
+    firmwareProgress.style.display = 'none';
+  }
+  firmwareUpdateBtn.disabled = !firmwareFilePath || !firmwareSsid.value.trim();
+}
 
 const firmwareDropzone   = document.getElementById('firmware-dropzone');
 const firmwareFileInfo   = document.getElementById('firmware-file-info');
@@ -261,6 +373,40 @@ const firmwareProgressLabel = document.getElementById('firmware-progress-label')
 const firmwareModuleGrid = document.getElementById('firmware-module-grid');
 const firmwareCancelBtn  = document.getElementById('firmware-cancel-btn');
 const firmwareFeedback   = document.getElementById('firmware-feedback');
+const firmwarePasswordToggle = document.getElementById('firmware-password-toggle');
+const firmwareTabFile    = document.getElementById('firmware-tab-file');
+const firmwareTabUrl     = document.getElementById('firmware-tab-url');
+const firmwareUrlInput   = document.getElementById('firmware-url-input');
+
+let firmwareMode = 'file'; // 'file' | 'url'
+
+firmwareTabFile.addEventListener('click', () => {
+  firmwareMode = 'file';
+  firmwareTabFile.classList.add('active');
+  firmwareTabUrl.classList.remove('active');
+  firmwareDropzone.style.display = firmwareFilePath ? 'none' : '';
+  firmwareFileInfo.style.display = firmwareFilePath ? 'flex' : 'none';
+  firmwareUrlInput.style.display = 'none';
+  refreshFirmwareBtn();
+});
+
+firmwareTabUrl.addEventListener('click', () => {
+  firmwareMode = 'url';
+  firmwareTabUrl.classList.add('active');
+  firmwareTabFile.classList.remove('active');
+  firmwareDropzone.style.display = 'none';
+  firmwareFileInfo.style.display = 'none';
+  firmwareUrlInput.style.display = '';
+  firmwareUrlInput.focus();
+  refreshFirmwareBtn();
+});
+
+firmwarePasswordToggle.addEventListener('click', () => {
+  const isPassword = firmwarePassword.type === 'password';
+  firmwarePassword.type = isPassword ? 'text' : 'password';
+  firmwarePasswordToggle.title = isPassword ? 'Hide password' : 'Show password';
+  firmwarePasswordToggle.setAttribute('aria-label', isPassword ? 'Hide password' : 'Show password');
+});
 
 // Restore saved credentials
 firmwareSsid.value = localStorage.getItem('firmware.ssid') ?? '';
@@ -273,6 +419,7 @@ firmwareSsid.addEventListener('input', () => {
 firmwarePassword.addEventListener('input', () => {
   localStorage.setItem('firmware.password', firmwarePassword.value);
 });
+firmwareUrlInput.addEventListener('input', refreshFirmwareBtn);
 
 function setFirmwareFile(filePath) {
   firmwareFilePath = filePath;
@@ -311,20 +458,44 @@ firmwareClearBtn.addEventListener('click', () => {
 });
 
 function refreshFirmwareBtn() {
-  firmwareUpdateBtn.disabled = !firmwareFilePath || !firmwareSsid.value.trim();
+  if (firmwareMode === 'url') {
+    firmwareUpdateBtn.disabled = !firmwareUrlInput.value.trim() || !firmwareSsid.value.trim();
+  } else {
+    firmwareUpdateBtn.disabled = !firmwareFilePath || !firmwareSsid.value.trim();
+  }
 }
 
 refreshFirmwareBtn();
 
 firmwareUpdateBtn.addEventListener('click', async () => {
-  if (!selectedId || !firmwareFilePath) return;
+  if (!selectedId) return;
 
   const ssid = firmwareSsid.value.trim();
   const password = firmwarePassword.value;
+  const modules = moduleSelect.value === '@'
+    ? Array.from({ length: MODULE_COUNT }, (_, i) => i)
+    : [parseInt(moduleSelect.value, 10)];
 
   firmwareUpdateBtn.disabled = true;
   firmwareFeedback.textContent = '';
   firmwareFeedback.className = 'feedback';
+
+  if (firmwareMode === 'url') {
+    const url = firmwareUrlInput.value.trim();
+    if (!url) { firmwareUpdateBtn.disabled = false; return; }
+
+    const result = await window.splitflap.sendFirmwareUpdateFromUrl(selectedId, modules, url, ssid, password);
+    if (result.ok) {
+      setFeedback(firmwareFeedback, result,
+        `Update initiated for ${modules.length} module${modules.length !== 1 ? 's' : ''}. Modules will download firmware and reboot automatically.`);
+    } else {
+      setFeedback(firmwareFeedback, result);
+    }
+    firmwareUpdateBtn.disabled = !url || !ssid;
+    return;
+  }
+
+  if (!firmwareFilePath) { firmwareUpdateBtn.disabled = false; return; }
 
   const serverResult = await window.splitflap.startFirmwareServer(firmwareFilePath);
   if (!serverResult.ok) {
@@ -334,10 +505,8 @@ firmwareUpdateBtn.addEventListener('click', async () => {
   }
 
   const { ip, port } = serverResult;
-  const modules = moduleSelect.value === '@'
-    ? Array.from({ length: MODULE_COUNT }, (_, i) => i)
-    : [parseInt(moduleSelect.value, 10)];
 
+  updatingDisplayId = selectedId;
   firmwarePendingAcks = new Set(modules);
   buildFirmwareProgressGrid(modules);
   firmwareProgressLabel.textContent = `Waiting for ${modules.length} module${modules.length !== 1 ? 's' : ''} to confirm…`;
@@ -367,23 +536,60 @@ function buildFirmwareProgressGrid(modules) {
 function stopFirmwareUpdate() {
   window.splitflap.stopFirmwareServer();
   firmwarePendingAcks.clear();
+  firmwareStateByDisplay.delete(updatingDisplayId);
+  updatingDisplayId = null;
   firmwareForm.style.display = '';
   firmwareProgress.style.display = 'none';
-  firmwareUpdateBtn.disabled = !firmwareFilePath || !firmwareSsid.value.trim();
+  refreshFirmwareBtn();
 }
 
+function applyModuleClassToState(state, index, className) {
+  const temp = document.createElement('div');
+  temp.innerHTML = state.gridHTML;
+  const el = temp.querySelector(`#fw-mod-${index}`);
+  if (el) el.className = className;
+  state.gridHTML = temp.innerHTML;
+}
+
+window.splitflap.onFirmwareRequested(({ index }) => {
+  if (updatingDisplayId === selectedId) {
+    const el = document.getElementById(`fw-mod-${index}`);
+    if (el) el.className = 'firmware-module-item requested';
+  } else {
+    const state = firmwareStateByDisplay.get(updatingDisplayId);
+    if (state) applyModuleClassToState(state, index, 'firmware-module-item requested');
+  }
+});
+
 window.splitflap.onFirmwareAck(({ index }) => {
-  const el = document.getElementById(`fw-mod-${index}`);
-  if (el) el.className = 'firmware-module-item ok';
+  if (updatingDisplayId === selectedId) {
+    const el = document.getElementById(`fw-mod-${index}`);
+    if (el) el.className = 'firmware-module-item ok';
 
-  firmwarePendingAcks.delete(index);
-  firmwareProgressLabel.textContent = firmwarePendingAcks.size === 0
-    ? 'All modules updated.'
-    : `Waiting for ${firmwarePendingAcks.size} more module${firmwarePendingAcks.size !== 1 ? 's' : ''}…`;
+    firmwarePendingAcks.delete(index);
+    firmwareProgressLabel.textContent = firmwarePendingAcks.size === 0
+      ? 'All modules updated.'
+      : `Waiting for ${firmwarePendingAcks.size} more module${firmwarePendingAcks.size !== 1 ? 's' : ''}…`;
 
-  if (firmwarePendingAcks.size === 0) {
-    stopFirmwareUpdate();
-    setFeedback(firmwareFeedback, { ok: true }, 'Firmware update complete.');
+    if (firmwarePendingAcks.size === 0) {
+      stopFirmwareUpdate();
+      setFeedback(firmwareFeedback, { ok: true }, 'Firmware update complete.');
+    }
+  } else {
+    const state = firmwareStateByDisplay.get(updatingDisplayId);
+    if (state) {
+      applyModuleClassToState(state, index, 'firmware-module-item ok');
+      state.pendingAcks.delete(index);
+      state.labelText = state.pendingAcks.size === 0
+        ? 'All modules updated.'
+        : `Waiting for ${state.pendingAcks.size} more module${state.pendingAcks.size !== 1 ? 's' : ''}…`;
+      if (state.pendingAcks.size === 0) {
+        state.showingProgress = false;
+        window.splitflap.stopFirmwareServer();
+        firmwareStateByDisplay.delete(updatingDisplayId);
+        updatingDisplayId = null;
+      }
+    }
   }
 });
 
@@ -396,11 +602,19 @@ window.splitflap.onDisplayFound((display) => {
 
 window.splitflap.onDisplayLost((id) => {
   displays.delete(id);
+  if (updatingDisplayId === id) {
+    window.splitflap.stopFirmwareServer();
+    firmwareStateByDisplay.delete(id);
+    updatingDisplayId = null;
+  }
   if (selectedId === id) {
     selectedId = null;
     controlsEl.style.display = 'none';
     noSelectionEl.style.display = '';
     resetHoming();
+    firmwarePendingAcks.clear();
+    firmwareForm.style.display = '';
+    firmwareProgress.style.display = 'none';
   }
   renderList();
 });

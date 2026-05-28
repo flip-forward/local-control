@@ -20,6 +20,7 @@
   --flip-accent-muted: #2563eb;
 
   /* Semantic */
+  --flip-success: #22c55e;
   --flip-danger: #dc2626;
   --flip-warning: #ea580c;
 }

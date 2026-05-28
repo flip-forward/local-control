@@ -1,5 +1,7 @@
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
-if (process.env.NODE_ENV !== 'production') require('electron-reload')(__dirname);
+if (process.env.NODE_ENV !== 'production') {
+  try { require('electron-reload')(__dirname); } catch (_) {}
+}
 const path = require('path');
 const http = require('http');
 const fs = require('fs');
@@ -15,10 +17,13 @@ let firmwareServer = null;
 // ── Window ────────────────────────────────────────────────────
 
 function createWindow() {
+  const iconPath = path.join(__dirname, '..', 'build', 'icon.png');
+
   mainWindow = new BrowserWindow({
     width: 1100,
     height: 680,
     titleBarStyle: 'hiddenInset',
+    icon: iconPath,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -26,6 +31,8 @@ function createWindow() {
     },
     title: 'flip forward',
   });
+
+  if (process.platform === 'darwin') app.dock.setIcon(iconPath);
 
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 
@@ -105,6 +112,9 @@ function startFirmwareServer(filePath) {
 
       if (req.method === 'GET') {
         console.log(`[firmware] GET ${req.url} — serving file`);
+        if (index !== null) {
+          mainWindow?.webContents.send('firmware:requested', { index: parseInt(index, 10) });
+        }
         fs.stat(filePath, (err, stat) => {
           if (err) { res.writeHead(404); res.end(); return; }
           res.writeHead(200, {
@@ -148,6 +158,16 @@ function stopFirmwareServer() {
 
 ipcMain.handle('open-external', (_event, url) => shell.openExternal(url));
 
+ipcMain.handle('display:add-manual', (_event, display) => {
+  displays.set(display.id, display);
+  return { ok: true };
+});
+
+ipcMain.handle('display:remove-manual', (_event, id) => {
+  displays.delete(id);
+  return { ok: true };
+});
+
 ipcMain.handle('displays:list', () => Array.from(displays.values()));
 
 ipcMain.handle('display:send', async (_event, { id, text }) => {
@@ -189,6 +209,20 @@ ipcMain.handle('firmware:start', async (_event, { filePath }) => {
 
 ipcMain.handle('firmware:stop', () => {
   stopFirmwareServer();
+  return { ok: true };
+});
+
+ipcMain.handle('firmware:update-url', async (_event, { id, modules, url, ssid, password }) => {
+  const display = displays.get(id);
+  if (!display) return { ok: false, error: 'Display not found' };
+
+  const sorted = [...modules].sort((a, b) => b - a);
+  for (const mod of sorted) {
+    const command = `${mod}:FIRMWAREUPDATE:${url}%${ssid}%${password}`;
+    console.log(`[firmware] sending url update: ${command}`);
+    const result = await postCommand(display, command);
+    if (!result.ok) return { ok: false, error: `Module ${mod}: ${result.error}` };
+  }
   return { ok: true };
 });
 

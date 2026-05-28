@@ -1,10 +1,11 @@
 {
-  "name": "local-control",
-  "version": "1.0.0",
-  "description": "",
+  "name": "flip-forward",
+  "version": "0.1.2",
+  "description": "Control app for flip forward split-flap displays",
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
+    "make-icon": "node scripts/make-icon.js",
     "build": "electron-builder",
     "build:mac": "electron-builder --mac",
     "build:linux": "electron-builder --linux",
@@ -12,8 +13,9 @@
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "build": {
-    "appId": "com.localcontrol.splitflap",
-    "productName": "Split Flap Control",
+    "appId": "de.flipforward.control",
+    "productName": "flip forward",
+    "icon": "build/icon",
     "directories": {
       "output": "dist"
     },
@@ -42,7 +44,8 @@
     },
     "win": {
       "target": [
-        "nsis"
+        { "target": "nsis",     "arch": ["x64"] },
+        { "target": "portable", "arch": ["x64"] }
       ]
     }
   },
@@ -53,7 +56,8 @@
   "devDependencies": {
     "electron": "^42.0.1",
     "electron-builder": "^26.8.1",
-    "electron-reload": "^2.0.0-alpha.1"
+    "electron-reload": "^2.0.0-alpha.1",
+    "sharp": "^0.34.5"
   },
   "dependencies": {
     "@fontsource/barlow": "^5.2.8",
