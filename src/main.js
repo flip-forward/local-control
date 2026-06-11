@@ -115,22 +115,19 @@ async function postCommand(display, commandStr) {
 // ── Firmware server ───────────────────────────────────────────
 
 function getLocalIP() {
-  const ifaces = os.networkInterfaces();
-  // Skip virtual/VPN adapters common on Windows (Hyper-V, WSL, Bluetooth, VPN tap/tun)
-  const skipPattern = /^(vethernet|vmnet|loopback|wsl|bluetooth|vlan|tap|tun|vpn|hamachi|virtualbox|vmware)/i;
-  for (const name of Object.keys(ifaces)) {
-    if (skipPattern.test(name)) continue;
-    for (const iface of ifaces[name]) {
-      if (iface.family === 'IPv4' && !iface.internal) return iface.address;
-    }
-  }
-  // Fallback: first non-internal IPv4
-  for (const addrs of Object.values(os.networkInterfaces())) {
-    for (const iface of addrs) {
-      if (iface.family === 'IPv4' && !iface.internal) return iface.address;
-    }
-  }
-  return '127.0.0.1';
+  const { createSocket } = require('dgram');
+  return new Promise((resolve) => {
+    const socket = createSocket('udp4');
+    socket.connect(80, '8.8.8.8', () => {
+      const addr = socket.address().address;
+      socket.close();
+      resolve(addr);
+    });
+    socket.on('error', () => {
+      socket.close();
+      resolve('127.0.0.1');
+    });
+  });
 }
 
 const FIRMWARE_PORT = 18456;
@@ -221,7 +218,7 @@ async function startFirmwareServer() {
 }
 
 async function getFirmwareServerInfo() {
-  const ip = getLocalIP();
+  const ip = await getLocalIP();
   const port = FIRMWARE_PORT;
   const testUrl = `http://${ip}:${port}/test`;
   const qrDataUrl = await QRCode.toDataURL(testUrl, { width: 160, margin: 1 });
