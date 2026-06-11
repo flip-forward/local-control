@@ -377,6 +377,29 @@ const firmwarePasswordToggle = document.getElementById('firmware-password-toggle
 const firmwareTabFile    = document.getElementById('firmware-tab-file');
 const firmwareTabUrl     = document.getElementById('firmware-tab-url');
 const firmwareUrlInput   = document.getElementById('firmware-url-input');
+const firmwareTestQrImg  = document.getElementById('firmware-test-qr-img');
+const firmwareTestLink   = document.getElementById('firmware-test-link');
+const firmwareWindowsWarn = document.getElementById('firmware-windows-warn');
+const firmwareFirewallBtn = document.getElementById('firmware-firewall-btn');
+
+firmwareFirewallBtn.addEventListener('click', () => {
+  window.splitflap.openFirewallPort(18456);
+});
+
+let firmwareServerInfo = null;
+
+async function initFirmwareServerInfo() {
+  const result = await window.splitflap.getFirmwareServerInfo();
+  if (!result.ok) return;
+  firmwareServerInfo = result;
+  firmwareTestQrImg.src = result.qrDataUrl;
+  firmwareTestLink.textContent = result.testUrl;
+  firmwareTestLink.onclick = () => window.splitflap.openExternal(result.testUrl);
+  const platform = await window.splitflap.platform();
+  firmwareWindowsWarn.style.display = platform === 'win32' ? '' : 'none';
+}
+
+initFirmwareServerInfo();
 
 let firmwareMode = 'file'; // 'file' | 'url'
 
@@ -497,14 +520,15 @@ firmwareUpdateBtn.addEventListener('click', async () => {
 
   if (!firmwareFilePath) { firmwareUpdateBtn.disabled = false; return; }
 
-  const serverResult = await window.splitflap.startFirmwareServer(firmwareFilePath);
-  if (!serverResult.ok) {
-    setFeedback(firmwareFeedback, serverResult);
+  await window.splitflap.startFirmwareServer(firmwareFilePath);
+
+  if (!firmwareServerInfo) {
+    setFeedback(firmwareFeedback, { ok: false, error: 'Server not ready' });
     firmwareUpdateBtn.disabled = false;
     return;
   }
 
-  const { ip, port } = serverResult;
+  const { ip, port } = firmwareServerInfo;
 
   updatingDisplayId = selectedId;
   firmwarePendingAcks = new Set(modules);
@@ -621,6 +645,69 @@ window.splitflap.onDisplayLost((id) => {
 
 document.getElementById('footer-link').addEventListener('click', () => {
   window.splitflap.openExternal('https://www.flipforward.de');
+});
+
+// ── Activity log ──────────────────────────────────────────────
+
+const logToggleBtn  = document.getElementById('log-toggle');
+const logEntriesEl  = document.getElementById('log-entries');
+const logClearBtn   = document.getElementById('log-clear-btn');
+let logAutoScroll   = true;
+
+function formatTime(ts) {
+  const d = new Date(ts);
+  return d.toLocaleTimeString('en-GB', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+function buildLogEntryEl(entry) {
+  const el = document.createElement('div');
+  el.className = 'log-entry ' + (entry.ok ? 'log-ok' : 'log-err');
+
+  let label, statusText;
+  if (entry.direction === 'out') {
+    label = `${entry.url}  ${entry.command}`;
+    statusText = entry.ok ? `${entry.status ?? 200}` : (entry.error ?? 'error');
+  } else {
+    label = `← ${entry.method} ${entry.path}`;
+    statusText = entry.ok ? `${entry.status}` : `${entry.status} ${entry.error ?? ''}`.trim();
+  }
+
+  el.innerHTML =
+    `<span class="log-time">${formatTime(entry.ts)}</span>` +
+    `<span class="log-dir ${entry.direction === 'out' ? 'out' : 'in'}">${entry.direction === 'out' ? '↑' : '↓'}</span>` +
+    `<span class="log-label" title="${label.replace(/"/g, '&quot;')}">${label}</span>` +
+    `<span class="log-status">${statusText}</span>`;
+
+  return el;
+}
+
+function appendLogEntry(entry) {
+  const el = buildLogEntryEl(entry);
+  logEntriesEl.appendChild(el);
+  if (logAutoScroll) logEntriesEl.scrollTop = logEntriesEl.scrollHeight;
+}
+
+logEntriesEl.addEventListener('scroll', () => {
+  const { scrollTop, scrollHeight, clientHeight } = logEntriesEl;
+  logAutoScroll = scrollHeight - scrollTop - clientHeight < 8;
+});
+
+logClearBtn.addEventListener('click', () => {
+  logEntriesEl.innerHTML = '';
+});
+
+logToggleBtn.addEventListener('click', () => {
+  const open = document.body.classList.toggle('log-open');
+  logToggleBtn.classList.toggle('active', open);
+  if (open) logEntriesEl.scrollTop = logEntriesEl.scrollHeight;
+});
+
+window.splitflap.getLogs().then((entries) => {
+  for (const entry of entries) appendLogEntry(entry);
+});
+
+window.splitflap.onLogEntry((entry) => {
+  appendLogEntry(entry);
 });
 
 window.splitflap.listDisplays().then((list) => {
