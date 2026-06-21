@@ -2,9 +2,7 @@
 
 A desktop app for discovering and controlling [flip forward](https://www.flipforward.de) split-flap displays on your local network.
 
-<video src="docs/assets/demo.mp4" controls muted playsinline width="720">
-  Demo video — see docs/assets/demo.mp4
-</video>
+[▶ Watch the demo](docs/assets/demo.mp4)
 
 ## Features
 
