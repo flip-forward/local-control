@@ -1,6 +1,6 @@
 {
   "name": "flip-forward",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Control app for flip forward split-flap displays",
   "main": "src/main.js",
   "scripts": {
@@ -60,7 +60,7 @@
     }
   },
   "keywords": [],
-  "author": "",
+  "author": "Moritz Haarmann <moritz@flipforward.de>",
   "license": "ISC",
   "type": "commonjs",
   "devDependencies": {
