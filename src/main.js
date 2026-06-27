@@ -112,6 +112,45 @@ async function postCommand(display, commandStr) {
   }
 }
 
+// ── Device log parsing ────────────────────────────────────────
+
+const LOG_ENTRY_SIZE = 64;
+const EVENT_NAMES = {
+  0x01: 'EVT_BOOT',
+  0x02: 'EVT_OTA_START',
+  0x03: 'EVT_OTA_OK',
+  0x04: 'EVT_OTA_FAIL',
+  0x05: 'EVT_HOMING_OK',
+  0x07: 'EVT_ROTATION',
+  0x08: 'EVT_WIFI_CONNECT',
+  0x09: 'EVT_WIFI_DROP',
+  0x0A: 'EVT_OTA_BAD_CONFIG',
+  0x0B: 'EVT_OTA_WIFI_FAIL',
+  0x0C: 'EVT_OTA_NO_UPDATE',
+};
+
+function parseLogEntries(buf) {
+  const entries = [];
+  for (let i = 0; i + LOG_ENTRY_SIZE <= buf.length; i += LOG_ENTRY_SIZE) {
+    if (buf[i] !== 0xAB) continue;
+    const event = buf[i + 1];
+    const eventNumber = buf.readUInt32LE(i + 2);
+    const timestamp = buf.readUInt32LE(i + 6);
+    const value = buf.readUInt32LE(i + 10);
+    const strLen = Math.min(buf[i + 14], 48);
+    const str = strLen > 0 ? buf.slice(i + 15, i + 15 + strLen).toString('utf8').replace(/\0/g, '') : '';
+    entries.push({
+      event,
+      name: EVENT_NAMES[event] ?? `0x${event.toString(16).padStart(2, '0')}`,
+      eventNumber,
+      timestamp,
+      value,
+      str,
+    });
+  }
+  return entries;
+}
+
 // ── Firmware server ───────────────────────────────────────────
 
 function getLocalIP() {
@@ -193,6 +232,22 @@ async function startFirmwareServer() {
           addLogEntry({ direction: 'in', method: 'GET', path: req.url, status: 200, ok: true });
         });
       } else if (req.method === 'POST') {
+        if (parsed.pathname === '/log') {
+          const displayId = parsed.searchParams.get('id') ?? '';
+          const modStr = parsed.searchParams.get('module');
+          const modIdx = modStr !== null ? parseInt(modStr, 10) : 0;
+          const chunks = [];
+          req.on('data', chunk => chunks.push(chunk));
+          req.on('end', () => {
+            const buf = Buffer.concat(chunks);
+            const entries = parseLogEntries(buf);
+            mainWindow?.webContents.send('device-log:entries', { id: displayId, module: modIdx, entries });
+            res.writeHead(200);
+            res.end();
+            addLogEntry({ direction: 'in', method: 'POST', path: '/log', status: 200, ok: true, target: displayId });
+          });
+          return;
+        }
         req.resume();
         req.on('end', () => {
           res.writeHead(200);
@@ -321,6 +376,21 @@ ipcMain.handle('firmware:update-url', async (_event, { id, modules, url, ssid, p
     const command = `${mod}:FIRMWAREUPDATE:${url}%${ssid}%${password}`;
     console.log(`[firmware] sending url update: ${command}`);
     const result = await postCommand(display, command);
+    if (!result.ok) return { ok: false, error: `Module ${mod}: ${result.error}` };
+  }
+  return { ok: true };
+});
+
+ipcMain.handle('display:fetch-log', async (_event, { id, modules, ssid, password }) => {
+  const display = displays.get(id);
+  if (!display) return { ok: false, error: 'Display not found' };
+  const ip = await getLocalIP();
+  const sorted = [...modules].sort((a, b) => b - a);
+  for (let i = 0; i < sorted.length; i++) {
+    if (i > 0) await new Promise(r => setTimeout(r, 200));
+    const mod = sorted[i];
+    const url = `http://${ip}:${FIRMWARE_PORT}/log?id=${id}&module=${mod}`;
+    const result = await postCommand(display, `${mod}:UPLOADLOG:${url}%${ssid}%${password}`);
     if (!result.ok) return { ok: false, error: `Module ${mod}: ${result.error}` };
   }
   return { ok: true };

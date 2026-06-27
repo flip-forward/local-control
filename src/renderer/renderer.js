@@ -176,6 +176,7 @@ function selectDisplay(id) {
   resetHoming();
   updateHomingCardState();
   restoreFirmwareState(id);
+  restoreDeviceLogState(id);
   speedSelect.value = '20';
   window.splitflap.sendCommand(id, '@', 'MAXSPEED', '20');
   textInput.focus();
@@ -200,7 +201,7 @@ function setFeedback(el, result, successMsg = 'Done.') {
 }
 
 function clearFeedback() {
-  [sendFeedback, displaycharFeedback, homingFeedback, homingConfirmFeedback, firmwareFeedback].forEach((el) => {
+  [sendFeedback, displaycharFeedback, homingFeedback, homingConfirmFeedback, firmwareFeedback, deviceLogFeedback].forEach((el) => {
     el.textContent = '';
     el.className = 'feedback';
   });
@@ -713,4 +714,258 @@ window.splitflap.onLogEntry((entry) => {
 window.splitflap.listDisplays().then((list) => {
   for (const d of list) displays.set(d.id, d);
   renderList();
+});
+
+// ── Device log ────────────────────────────────────────────────
+
+const deviceLogFormEl      = document.getElementById('device-log-form');
+const deviceLogWaitingEl   = document.getElementById('device-log-waiting');
+const deviceLogWaitLabel   = document.getElementById('device-log-wait-label');
+const deviceLogWaitGrid    = document.getElementById('device-log-wait-grid');
+const deviceLogResultEl    = document.getElementById('device-log-result');
+const deviceLogCountEl     = document.getElementById('device-log-result-count');
+const deviceLogModuleTabs  = document.getElementById('device-log-module-tabs');
+const deviceLogListEl      = document.getElementById('device-log-list');
+const deviceLogFeedback    = document.getElementById('device-log-feedback');
+const fetchLogBtn          = document.getElementById('fetch-log-btn');
+const deviceLogFinishBtn   = document.getElementById('device-log-finish-btn');
+const deviceLogRefetchBtn  = document.getElementById('device-log-refetch-btn');
+const deviceLogSsid        = document.getElementById('device-log-ssid');
+const deviceLogPassword    = document.getElementById('device-log-password');
+const deviceLogPwdToggle   = document.getElementById('device-log-pwd-toggle');
+
+const EVENT_BADGE_LABELS = {
+  0x01: 'BOOT',
+  0x02: 'OTA START',
+  0x03: 'OTA OK',
+  0x04: 'OTA FAIL',
+  0x05: 'HOMING OK',
+  0x07: 'ROTATION',
+  0x08: 'WIFI UP',
+  0x09: 'WIFI DROP',
+  0x0A: 'BAD CMD',
+  0x0B: 'WIFI FAIL',
+  0x0C: 'NO UPDATE',
+};
+
+function eventBadgeClass(event) {
+  if (event === 0x01) return 'evt-boot';
+  if (event === 0x08) return 'evt-wifi-ok';
+  if (event === 0x09) return 'evt-wifi-drop';
+  if (event === 0x05) return 'evt-homing';
+  if (event === 0x07) return 'evt-rotation';
+  if ([0x02, 0x03, 0x0C].includes(event)) return 'evt-ota';
+  if ([0x04, 0x0A, 0x0B].includes(event)) return 'evt-error';
+  return 'evt-unknown';
+}
+
+function eventDetail(entry) {
+  switch (entry.event) {
+    case 0x01: return entry.str ? `fw ${entry.str}` : '';
+    case 0x02: return [entry.str ? `url: ${entry.str}` : '', entry.value ? `heap: ${entry.value}` : ''].filter(Boolean).join('  ');
+    case 0x04: return [entry.str || '', entry.value ? `err ${entry.value}` : ''].filter(Boolean).join('  ');
+    case 0x07: return `${entry.value} lifetime rotations`;
+    case 0x0A: return entry.str ? `cmd: ${entry.str}` : '';
+    case 0x0B: return `wl_status: ${entry.value}`;
+    default:   return entry.str || '';
+  }
+}
+
+function formatDeviceLogTime(ts) {
+  if (!ts) return 'no time';
+  const d = new Date(ts * 1000);
+  return d.toLocaleString('en-GB', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+}
+
+function buildDeviceLogEntryEl(entry) {
+  const el = document.createElement('div');
+  el.className = 'device-log-entry';
+  const label = EVENT_BADGE_LABELS[entry.event] ?? entry.name;
+  const badgeClass = eventBadgeClass(entry.event);
+  const detail = eventDetail(entry);
+  el.innerHTML =
+    `<span class="evt-badge ${badgeClass}">${label}</span>` +
+    `<span class="device-log-num">#${entry.eventNumber}</span>` +
+    `<span class="device-log-time">${formatDeviceLogTime(entry.timestamp)}</span>` +
+    `<span class="device-log-detail" title="${detail.replace(/"/g, '&quot;')}">${detail}</span>`;
+  return el;
+}
+
+// deviceLogs: displayId → Map<moduleIndex, entries[]>
+const deviceLogs = new Map();
+let deviceLogPendingModules = new Set();
+let deviceLogFetchingId = null;
+let deviceLogActiveModule = null;
+function showDeviceLogForm() {
+  deviceLogFormEl.style.display = '';
+  deviceLogWaitingEl.style.display = 'none';
+  deviceLogResultEl.style.display = 'none';
+}
+
+function startDeviceLogWaiting(modules) {
+  deviceLogFormEl.style.display = 'none';
+  deviceLogWaitingEl.style.display = '';
+  deviceLogResultEl.style.display = 'none';
+  deviceLogWaitGrid.innerHTML = '';
+  for (const mod of [...modules].sort((a, b) => a - b)) {
+    const el = document.createElement('div');
+    el.className = 'device-log-wait-item';
+    el.id = `dl-wait-${mod}`;
+    el.textContent = mod;
+    deviceLogWaitGrid.appendChild(el);
+  }
+  const count = modules.length;
+  deviceLogWaitLabel.textContent = `Waiting for ${count} module${count !== 1 ? 's' : ''} to upload logs…`;
+}
+
+function markModuleLogReceived(modIdx) {
+  const el = document.getElementById(`dl-wait-${modIdx}`);
+  if (el) el.className = 'device-log-wait-item received';
+  deviceLogPendingModules.delete(modIdx);
+  const remaining = deviceLogPendingModules.size;
+  if (remaining > 0) {
+    deviceLogWaitLabel.textContent = `Waiting for ${remaining} more module${remaining !== 1 ? 's' : ''}…`;
+  } else {
+    showDeviceLogResult(deviceLogFetchingId);
+  }
+}
+
+function showDeviceLogResult(id) {
+  const logs = deviceLogs.get(id);
+  if (!logs || logs.size === 0) return;
+
+  deviceLogFormEl.style.display = 'none';
+  deviceLogWaitingEl.style.display = 'none';
+  deviceLogResultEl.style.display = '';
+
+  const moduleIds = [...logs.keys()].sort((a, b) => a - b);
+
+  // Rebuild module tabs
+  deviceLogModuleTabs.innerHTML = '';
+  if (moduleIds.length > 1) {
+    for (const modIdx of moduleIds) {
+      const btn = document.createElement('button');
+      btn.className = 'device-log-mod-tab';
+      btn.textContent = `Module ${modIdx}`;
+      btn.dataset.mod = modIdx;
+      btn.addEventListener('click', () => renderModuleLog(id, modIdx));
+      deviceLogModuleTabs.appendChild(btn);
+    }
+  }
+
+  // Show previously active module or first available
+  if (deviceLogActiveModule === null || !logs.has(deviceLogActiveModule)) {
+    deviceLogActiveModule = moduleIds[0];
+  }
+  renderModuleLog(id, deviceLogActiveModule);
+}
+
+function renderModuleLog(id, modIdx) {
+  deviceLogActiveModule = modIdx;
+  const logs = deviceLogs.get(id);
+  const entries = logs?.get(modIdx) ?? [];
+
+  deviceLogModuleTabs.querySelectorAll('.device-log-mod-tab').forEach(btn => {
+    btn.classList.toggle('active', parseInt(btn.dataset.mod, 10) === modIdx);
+  });
+
+  deviceLogListEl.innerHTML = '';
+  const reversed = [...entries].reverse();
+  for (const entry of reversed) deviceLogListEl.appendChild(buildDeviceLogEntryEl(entry));
+
+  const moduleLabel = deviceLogs.get(id)?.size > 1 ? ` · Module ${modIdx}` : '';
+  deviceLogCountEl.textContent = `${entries.length} entries${moduleLabel}`;
+}
+
+function restoreDeviceLogState(id) {
+  deviceLogPendingModules = new Set();
+  deviceLogFetchingId = null;
+  deviceLogActiveModule = null;
+  const saved = deviceLogs.get(id);
+  if (saved && saved.size > 0) {
+    showDeviceLogResult(id);
+  } else {
+    showDeviceLogForm();
+  }
+  deviceLogFeedback.textContent = '';
+  deviceLogFeedback.className = 'feedback';
+}
+
+// Pre-fill from the same localStorage keys as the firmware card
+deviceLogSsid.value     = localStorage.getItem('firmware.ssid') ?? '';
+deviceLogPassword.value = localStorage.getItem('firmware.password') ?? '';
+
+deviceLogSsid.addEventListener('input', () => localStorage.setItem('firmware.ssid', deviceLogSsid.value));
+deviceLogPassword.addEventListener('input', () => localStorage.setItem('firmware.password', deviceLogPassword.value));
+
+deviceLogPwdToggle.addEventListener('click', () => {
+  const isPwd = deviceLogPassword.type === 'password';
+  deviceLogPassword.type = isPwd ? 'text' : 'password';
+  deviceLogPwdToggle.title = isPwd ? 'Hide password' : 'Show password';
+});
+
+fetchLogBtn.addEventListener('click', async () => {
+  if (!selectedId) return;
+  const ssid = deviceLogSsid.value.trim();
+  if (!ssid) { setFeedback(deviceLogFeedback, { ok: false, error: 'WiFi SSID is required.' }); return; }
+  const password = deviceLogPassword.value;
+
+  const modules = moduleSelect.value === '@'
+    ? Array.from({ length: MODULE_COUNT }, (_, i) => i)
+    : [parseInt(moduleSelect.value, 10)];
+
+  fetchLogBtn.disabled = true;
+  deviceLogFeedback.textContent = '';
+  deviceLogFeedback.className = 'feedback';
+
+  deviceLogPendingModules = new Set(modules);
+  deviceLogFetchingId = selectedId;
+
+  const result = await window.splitflap.fetchDeviceLog(selectedId, modules, ssid, password);
+  fetchLogBtn.disabled = false;
+
+  if (!result.ok) {
+    setFeedback(deviceLogFeedback, result);
+    deviceLogPendingModules = new Set();
+    deviceLogFetchingId = null;
+    return;
+  }
+
+  startDeviceLogWaiting(modules);
+});
+
+deviceLogFinishBtn.addEventListener('click', () => {
+  deviceLogPendingModules = new Set();
+  const logs = deviceLogs.get(deviceLogFetchingId);
+  if (logs && logs.size > 0) {
+    showDeviceLogResult(deviceLogFetchingId);
+    const count = logs.size;
+    setFeedback(deviceLogFeedback, { ok: true }, `Showing logs from ${count} module${count !== 1 ? 's' : ''}.`);
+  } else {
+    showDeviceLogForm();
+  }
+});
+
+deviceLogRefetchBtn.addEventListener('click', () => {
+  deviceLogActiveModule = null;
+  showDeviceLogForm();
+});
+
+window.splitflap.onDeviceLogEntries(({ id, module: modIdx, entries }) => {
+  if (!deviceLogs.has(id)) deviceLogs.set(id, new Map());
+  deviceLogs.get(id).set(modIdx, entries);
+
+  if (id === deviceLogFetchingId) {
+    if (id === selectedId) markModuleLogReceived(modIdx);
+    else deviceLogPendingModules.delete(modIdx);
+
+    if (deviceLogPendingModules.size === 0) {
+      const total = deviceLogs.get(id).size;
+      if (id === selectedId) {
+        setFeedback(deviceLogFeedback, { ok: true }, `Fetched logs from ${total} module${total !== 1 ? 's' : ''}.`);
+      }
+    }
+  } else if (id === selectedId) {
+    showDeviceLogResult(id);
+  }
 });

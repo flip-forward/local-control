@@ -27,6 +27,9 @@ contextBridge.exposeInMainWorld('splitflap', {
   onFirmwareRequested: (cb) => ipcRenderer.on('firmware:requested', (_e, data) => cb(data)),
   onFirmwareAck:       (cb) => ipcRenderer.on('firmware:ack',       (_e, data) => cb(data)),
 
+  fetchDeviceLog: (id, modules, ssid, password) => ipcRenderer.invoke('display:fetch-log', { id, modules, ssid, password }),
+  onDeviceLogEntries: (cb) => ipcRenderer.on('device-log:entries', (_e, data) => cb(data)),
+
   getLogs: () => ipcRenderer.invoke('log:get'),
   onLogEntry: (cb) => ipcRenderer.on('log:entry', (_e, entry) => cb(entry)),
 });

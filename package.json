@@ -1,6 +1,6 @@
 {
   "name": "flip-forward",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Control app for flip forward split-flap displays",
   "main": "src/main.js",
   "scripts": {
